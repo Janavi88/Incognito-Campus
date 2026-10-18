@@ -224,7 +224,7 @@ INSERT INTO votes (vote_id, user_id, post_id, answer_id, vote_value, created_at)
 INSERT INTO report (report_id, reporter_user_id, reviewer_user_id, post_id, answer_id, reason, status, created_at) VALUES
 ('80000000-0000-0000-0000-000000000001', 'PES1UG24CS002', NULL,       NULL, '50000000-0000-0000-0000-000000000004', 'The example given does not match the definition of 3NF.', 'pending',   '2026-09-04 10:00'),
 ('80000000-0000-0000-0000-000000000002', 'PES1UG24AM003', 'ADMIN001', '40000000-0000-0000-0000-000000000009', NULL,  'Duplicate of an existing doubt on graph traversals.',      'actioned',  '2026-09-16 12:00'),
-('80000000-0000-0000-0000-000000000003', 'PES1UG24CS003', 'ADMIN001', '40000000-0000-0000-0000-000000000006', NULL,  'Not a subject doubt.',                                         'dismissed', '2026-09-13 09:00');
+('80000000-0000-0000-0000-000000000003', 'PES1UG24AM001', 'ADMIN001', '40000000-0000-0000-0000-000000000006', NULL,  'Not a subject doubt.',                                         'dismissed', '2026-09-13 09:00');
 
 -- =========================================================
 -- 8. POST_EMBEDDINGS (optional, needs pgvector)
