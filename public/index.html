@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f7fb">
+    <title>Incognito Campus</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Incognito Campus home">
+        <span class="brand-mark">IC</span>
+        <span>Incognito <strong>Campus</strong></span>
+      </a>
+      <div id="session" class="session" hidden>
+        <span id="identity" class="identity"></span>
+        <button id="logout" class="button button-quiet" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section id="login-view" class="login-layout">
+        <div class="welcome">
+          <span class="eyebrow">A calmer way to ask</span>
+          <h1>Good questions deserve good answers.</h1>
+          <p>Ask your campus community, learn from each other, and keep useful explanations easy to find.</p>
+          <div class="welcome-note"><span class="note-icon">✳</span><span>Students participate under an anonymous handle. Verified teachers answer by name.</span></div>
+        </div>
+        <form id="login-form" class="panel login-card">
+          <span class="eyebrow">Welcome back</span>
+          <h2>Sign in to your campus</h2>
+          <p class="muted">Use your campus email or university ID.</p>
+          <label for="identifier">Email or user ID</label>
+          <input id="identifier" name="identifier" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button class="button button-primary full" type="submit">Sign in <span aria-hidden="true">→</span></button>
+          <p id="login-message" class="message" role="status"></p>
+        </form>
+      </section>
+
+      <section id="app-view" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">Campus knowledge base</span><h1>What are you working through?</h1><p class="muted">Browse a doubt or add one to the conversation.</p></div>
+          <button id="new-question" class="button button-primary" type="button"><span aria-hidden="true">＋</span> Ask a doubt</button>
+        </div>
+
+        <section id="composer" class="panel composer" hidden>
+          <div class="section-heading"><div><span class="eyebrow">Start a discussion</span><h2>Ask a doubt</h2></div><button id="close-composer" class="icon-button" type="button" aria-label="Close">×</button></div>
+          <form id="post-form" class="form-grid">
+            <label>Subject<select id="subject" name="subjectId" required><option value="">Choose a subject</option></select></label>
+            <label>Topic<select id="topic" name="topicName"><option value="">Optional</option></select></label>
+            <label class="span-two">Title<input name="title" maxlength="255" placeholder="Summarize your doubt in one line" required></label>
+            <label class="span-two">Details<textarea name="body" rows="4" maxlength="20000" placeholder="Share what you tried and where you got stuck…" required></textarea></label>
+            <label class="span-two">Tags <span class="label-note">comma separated</span><input name="tags" placeholder="e.g. dbms, normalization"></label>
+            <div class="span-two form-footer"><p id="post-message" class="message" role="status"></p><button class="button button-primary" type="submit">Publish doubt <span aria-hidden="true">→</span></button></div>
+          </form>
+        </section>
+
+        <section id="feed-view">
+          <div class="feed-toolbar"><div><h2>Recent doubts</h2><p class="muted">Questions from across your campus</p></div><button id="refresh" class="button button-quiet" type="button">↻ Refresh</button></div>
+          <div id="feed" class="feed-list"></div>
+          <p id="feed-message" class="message" role="status"></p>
+        </section>
+
+        <section id="detail-view" class="panel detail" hidden>
+          <button id="back-to-feed" class="back-link" type="button">← All doubts</button>
+          <div id="detail-content"></div>
+        </section>
+      </section>
+    </main>
+    <footer><span>Incognito Campus</span><span>Learn together. Ask freely.</span></footer>
+  </body>
+</html>
