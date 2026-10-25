@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAuth, optionalAuth, requireRole } = require('../middleware/requireAuth');
+const { embedPost } = require('../services/searchClient');
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.get('/', async (_req, res, next) => {
          JOIN users u ON u.user_id = p.user_id
          LEFT JOIN student st ON st.user_id = u.user_id
          LEFT JOIN teacher t ON t.user_id = u.user_id
+        WHERE p.merged_into IS NULL
         ORDER BY p.created_at DESC
         LIMIT 100`,
     );
@@ -34,7 +36,7 @@ router.get('/', async (_req, res, next) => {
 router.get('/:postId', optionalAuth, async (req, res, next) => {
   try {
     const { rows: postRows } = await pool.query(
-      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at,
+      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at, p.merged_into,
               s.subject_code, s.subject_name, u.role AS author_role,
               (p.user_id = $2) AS can_accept_as_owner,
               COALESCE(st.anonymous_handle, t.display_name) AS author_name,
@@ -57,6 +59,7 @@ router.get('/:postId', optionalAuth, async (req, res, next) => {
 
     const { rows: answers } = await pool.query(
       `SELECT a.answer_id, a.body, a.is_accepted, a.created_at, u.role AS author_role,
+              (a.post_id <> $1) AS from_merged_duplicate,
               COALESCE(st.anonymous_handle, t.display_name) AS author_name,
               COALESCE((SELECT sum(v.vote_value)::int FROM votes v WHERE v.answer_id = a.answer_id), 0) AS vote_score,
               (SELECT v.vote_value FROM votes v WHERE v.answer_id = a.answer_id AND v.user_id = $2) AS my_vote,
@@ -77,6 +80,7 @@ router.get('/:postId', optionalAuth, async (req, res, next) => {
          LEFT JOIN student st ON st.user_id = u.user_id
          LEFT JOIN teacher t ON t.user_id = u.user_id
         WHERE a.post_id = $1
+           OR a.post_id IN (SELECT d.post_id FROM post d WHERE d.merged_into = $1)
         ORDER BY a.is_accepted DESC, a.created_at`,
       [req.params.postId, req.auth?.sub || null],
     );
@@ -165,6 +169,7 @@ router.post('/', requireAuth, requireRole('student'), async (req, res, next) => 
     }
 
     await client.query('COMMIT');
+    void embedPost(post.post_id); // fire-and-forget: the post is saved even if the search service is down
     return res.status(201).json({ post: { ...post, tags: savedTags } });
   } catch (error) {
     await client.query('ROLLBACK');
