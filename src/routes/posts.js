@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAuth, optionalAuth, requireRole } = require('../middleware/requireAuth');
 const { embedPost } = require('../services/searchClient');
+const { findOrCreateSubject } = require('../services/subjectService');
 
 const router = express.Router();
 
@@ -9,6 +10,8 @@ router.get('/', async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at,
+              p.mentioned_teacher_id,
+              mt.display_name AS mentioned_teacher_name,
               s.subject_code, s.subject_name,
               u.role AS author_role,
               COALESCE(st.anonymous_handle, t.display_name) AS author_name,
@@ -23,6 +26,7 @@ router.get('/', async (_req, res, next) => {
          JOIN users u ON u.user_id = p.user_id
          LEFT JOIN student st ON st.user_id = u.user_id
          LEFT JOIN teacher t ON t.user_id = u.user_id
+         LEFT JOIN teacher mt ON mt.user_id = p.mentioned_teacher_id
         WHERE p.merged_into IS NULL
         ORDER BY p.created_at DESC
         LIMIT 100`,
@@ -37,6 +41,8 @@ router.get('/:postId', optionalAuth, async (req, res, next) => {
   try {
     const { rows: postRows } = await pool.query(
       `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at, p.merged_into,
+              p.mentioned_teacher_id,
+              mt.display_name AS mentioned_teacher_name,
               s.subject_code, s.subject_name, u.role AS author_role,
               (p.user_id = $2) AS can_accept_as_owner,
               COALESCE(st.anonymous_handle, t.display_name) AS author_name,
@@ -52,6 +58,7 @@ router.get('/:postId', optionalAuth, async (req, res, next) => {
          JOIN users u ON u.user_id = p.user_id
          LEFT JOIN student st ON st.user_id = u.user_id
          LEFT JOIN teacher t ON t.user_id = u.user_id
+         LEFT JOIN teacher mt ON mt.user_id = p.mentioned_teacher_id
         WHERE p.post_id = $1`,
       [req.params.postId, req.auth?.sub || null],
     );
@@ -118,13 +125,40 @@ router.post('/:postId/votes', requireAuth, async (req, res, next) => {
 });
 
 router.post('/', requireAuth, requireRole('student'), async (req, res, next) => {
-  const { subjectId, topicName = null, title, body, tags = [] } = req.body ?? {};
+  const {
+    subjectId,
+    customSubject,
+    subjectName,
+    title,
+    body,
+    tags = [],
+    mentionedTeacherId = null,
+    teacherId = null,
+  } = req.body ?? {};
 
-  if (typeof subjectId !== 'string' || !subjectId.trim() || subjectId.trim().length > 20) {
+  const rawTopic = req.body?.topicName !== undefined ? req.body.topicName : req.body?.topic;
+  const rawTeacher = mentionedTeacherId || teacherId || null;
+  const rawCustomSubject = customSubject || subjectName || null;
+  const isCustomSubject = subjectId === '__other__' || subjectId === '__custom__' || (!subjectId && Boolean(rawCustomSubject));
+
+  if (isCustomSubject) {
+    if (typeof rawCustomSubject !== 'string' || !rawCustomSubject.trim()) {
+      return res.status(400).json({ error: 'A subject name is required.' });
+    }
+    const cleanSubjectName = rawCustomSubject.trim();
+    if (cleanSubjectName.length > 150) {
+      return res.status(400).json({ error: 'Subject name must be 150 characters or fewer.' });
+    }
+  } else if (typeof subjectId !== 'string' || !subjectId.trim() || subjectId.trim().length > 150) {
     return res.status(400).json({ error: 'Choose a valid subject.' });
   }
-  if (topicName !== null && (typeof topicName !== 'string' || !topicName.trim() || topicName.trim().length > 100)) {
-    return res.status(400).json({ error: 'Choose a valid topic or leave it empty.' });
+
+  if (typeof rawTopic !== 'string' || !rawTopic.trim()) {
+    return res.status(400).json({ error: 'A topic is required.' });
+  }
+  const cleanTopic = rawTopic.trim();
+  if (cleanTopic.length > 100) {
+    return res.status(400).json({ error: 'Topic must be 100 characters or fewer.' });
   }
   if (typeof title !== 'string' || !title.trim() || title.trim().length > 255) {
     return res.status(400).json({ error: 'A title of 1 to 255 characters is required.' });
@@ -136,6 +170,14 @@ router.post('/', requireAuth, requireRole('student'), async (req, res, next) => 
     return res.status(400).json({ error: 'Provide up to 10 text tags.' });
   }
 
+  let cleanTeacherId = null;
+  if (rawTeacher !== null && rawTeacher !== undefined && rawTeacher !== '') {
+    if (typeof rawTeacher !== 'string' || !rawTeacher.trim() || rawTeacher.trim().length > 20) {
+      return res.status(400).json({ error: 'Invalid teacher selected.' });
+    }
+    cleanTeacherId = rawTeacher.trim();
+  }
+
   const cleanTags = [...new Set(tags.map((tag) => tag.trim().toLowerCase().replace(/^#+/, '')).filter(Boolean))];
   if (cleanTags.some((tag) => tag.length > 50)) {
     return res.status(400).json({ error: 'Each tag must be 50 characters or fewer.' });
@@ -144,11 +186,66 @@ router.post('/', requireAuth, requireRole('student'), async (req, res, next) => 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    let finalSubjectId;
+    let finalSubjectCode;
+    let finalSubjectName;
+
+    if (isCustomSubject) {
+      const subjectResult = await findOrCreateSubject(client, rawCustomSubject.trim());
+      finalSubjectId = subjectResult.subject.subject_id;
+      finalSubjectCode = subjectResult.subject.subject_code;
+      finalSubjectName = subjectResult.subject.subject_name;
+    } else {
+      const cleanSub = subjectId.trim();
+      const { rows: subjectRows } = await client.query(
+        'SELECT subject_id, subject_code, subject_name FROM subject WHERE subject_id = $1 OR LOWER(TRIM(subject_name)) = LOWER($1)',
+        [cleanSub],
+      );
+      if (!subjectRows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'The selected subject does not exist.' });
+      }
+      finalSubjectId = subjectRows[0].subject_id;
+      finalSubjectCode = subjectRows[0].subject_code;
+      finalSubjectName = subjectRows[0].subject_name;
+    }
+
+    let mentionedTeacherName = null;
+    if (cleanTeacherId) {
+      const { rows: teacherRows } = await client.query(
+        'SELECT user_id, display_name FROM teacher WHERE user_id = $1',
+        [cleanTeacherId],
+      );
+      if (!teacherRows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'The selected teacher does not exist.' });
+      }
+      mentionedTeacherName = teacherRows[0].display_name;
+    }
+
+    // Check if topic exists for this subject (case-insensitive and trimmed)
+    const { rows: topicRows } = await client.query(
+      'SELECT topic_name FROM topic WHERE subject_id = $1 AND LOWER(TRIM(topic_name)) = LOWER($2)',
+      [finalSubjectId, cleanTopic],
+    );
+
+    let finalTopicName;
+    if (topicRows.length > 0) {
+      finalTopicName = topicRows[0].topic_name;
+    } else {
+      await client.query(
+        'INSERT INTO topic (subject_id, topic_name) VALUES ($1, $2) ON CONFLICT (subject_id, topic_name) DO NOTHING',
+        [finalSubjectId, cleanTopic],
+      );
+      finalTopicName = cleanTopic;
+    }
+
     const { rows: postRows } = await client.query(
-      `INSERT INTO post (user_id, subject_id, topic_name, title, body)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING post_id, subject_id, topic_name, title, body, status, created_at`,
-      [req.auth.sub, subjectId.trim(), topicName?.trim() || null, title.trim(), body.trim()],
+      `INSERT INTO post (user_id, subject_id, topic_name, title, body, mentioned_teacher_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING post_id, subject_id, topic_name, title, body, status, created_at, mentioned_teacher_id`,
+      [req.auth.sub, finalSubjectId, finalTopicName, title.trim(), body.trim(), cleanTeacherId],
     );
     const post = postRows[0];
     const savedTags = [];
@@ -170,11 +267,19 @@ router.post('/', requireAuth, requireRole('student'), async (req, res, next) => 
 
     await client.query('COMMIT');
     void embedPost(post.post_id); // fire-and-forget: the post is saved even if the search service is down
-    return res.status(201).json({ post: { ...post, tags: savedTags } });
+    return res.status(201).json({
+      post: {
+        ...post,
+        subject_code: finalSubjectCode,
+        subject_name: finalSubjectName,
+        mentioned_teacher_name: mentionedTeacherName,
+        tags: savedTags,
+      },
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     if (error.code === '23503') {
-      return res.status(400).json({ error: 'The selected subject or topic does not exist.' });
+      return res.status(400).json({ error: 'The selected subject, topic, or teacher does not exist.' });
     }
     return next(error);
   } finally {

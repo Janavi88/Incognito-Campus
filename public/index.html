@@ -52,12 +52,69 @@
         <section id="composer" class="panel composer" hidden>
           <div class="section-heading"><div><span class="eyebrow">Start a discussion</span><h2>Ask a doubt</h2></div><button id="close-composer" class="icon-button" type="button" aria-label="Close">×</button></div>
           <form id="post-form" class="form-grid">
-            <label>Subject<select id="subject" name="subjectId" required><option value="">Choose a subject</option></select></label>
-            <label>Topic<select id="topic" name="topicName"><option value="">Optional</option></select></label>
-            <label class="span-two">Title<input name="title" maxlength="255" placeholder="Summarize your doubt in one line" required></label>
-            <label class="span-two">Details<textarea name="body" rows="4" maxlength="20000" placeholder="Share what you tried and where you got stuck…" required></textarea></label>
-            <label class="span-two">Tags <span class="label-note">comma separated</span><input name="tags" placeholder="e.g. dbms, normalization"></label>
-            <div class="span-two form-footer"><p id="post-message" class="message" role="status"></p><button class="button button-primary" type="submit">Publish doubt <span aria-hidden="true">→</span></button></div>
+            <label class="span-two">
+              <span>Title <span class="label-note">(required)</span></span>
+              <input name="title" maxlength="255" placeholder="Summarize your doubt in one line" required>
+              <span id="title-error" class="field-error" role="alert"></span>
+            </label>
+
+            <label class="span-two">
+              <span>Description <span class="label-note">(required)</span></span>
+              <textarea name="body" rows="4" maxlength="20000" placeholder="Share what you tried and where you got stuck…" required></textarea>
+              <span id="body-error" class="field-error" role="alert"></span>
+            </label>
+
+            <label>
+              <span>Subject <span class="label-note">(required)</span></span>
+              <select id="subject" name="subjectId" required>
+                <option value="">Choose a subject</option>
+              </select>
+              <span id="subject-error" class="field-error" role="alert"></span>
+            </label>
+
+            <label>
+              <span>Topic <span class="label-note">(required)</span></span>
+              <select id="topic" name="topicSelect" required>
+                <option value="">Choose a subject first</option>
+              </select>
+              <span id="topic-error" class="field-error" role="alert"></span>
+            </label>
+
+            <label id="custom-subject-group" class="span-two" hidden>
+              <span>Custom subject name <span class="label-note">(required)</span></span>
+              <input id="custom-subject" name="customSubject" maxlength="150" placeholder="e.g. Computer Networks">
+              <span id="custom-subject-error" class="field-error" role="alert"></span>
+            </label>
+
+            <label id="custom-topic-group" class="span-two" hidden>
+              <span>Custom topic name <span class="label-note">(required)</span></span>
+              <input id="custom-topic" name="customTopic" maxlength="100" placeholder="e.g. Query Plan Analysis">
+              <span id="custom-topic-error" class="field-error" role="alert"></span>
+            </label>
+
+            <div class="span-two teacher-field-container">
+              <label for="teacher-search">
+                <span>Mention teacher <span class="label-note">(optional)</span></span>
+              </label>
+              <div class="teacher-autocomplete">
+                <input id="teacher-search" type="text" placeholder="Search teacher by name (optional)…" autocomplete="off">
+                <input id="mentioned-teacher-id" name="mentionedTeacherId" type="hidden" value="">
+                <button id="clear-teacher" class="clear-teacher-btn" type="button" aria-label="Clear selected teacher" hidden>×</button>
+                <div id="teacher-dropdown" class="teacher-dropdown" hidden role="listbox"></div>
+              </div>
+              <div id="selected-teacher-pill" class="selected-teacher-pill" hidden></div>
+              <span id="teacher-error" class="field-error" role="alert"></span>
+            </div>
+
+            <label class="span-two">
+              <span>Tags <span class="label-note">comma separated (optional)</span></span>
+              <input name="tags" placeholder="e.g. dbms, normalization">
+            </label>
+
+            <div class="span-two form-footer">
+              <p id="post-message" class="message" role="status"></p>
+              <button class="button button-primary" type="submit">Publish doubt <span aria-hidden="true">→</span></button>
+            </div>
           </form>
         </section>
 

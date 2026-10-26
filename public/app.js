@@ -47,19 +47,243 @@ async function loadSubjects() {
   const data = await request('/api/subjects');
   state.subjects = data.subjects;
   const select = $('#subject');
+  if (!select) return;
+  const previousValue = select.value;
+  select.replaceChildren(new Option('Choose a subject', ''));
   for (const subject of state.subjects) {
     const option = document.createElement('option');
     option.value = subject.subject_id;
     option.textContent = `${subject.subject_code} · ${subject.subject_name}`;
     select.append(option);
   }
+  select.add(new Option('Other / Add a new subject…', '__other__'));
+  if (previousValue && Array.from(select.options).some((o) => o.value === previousValue)) {
+    select.value = previousValue;
+  }
+}
+
+function setFieldError(selector, message = '') {
+  const element = $(selector);
+  if (element) {
+    element.textContent = message;
+    element.style.display = message ? 'block' : 'none';
+  }
+}
+
+function clearFieldErrors() {
+  document.querySelectorAll('.field-error').forEach((element) => {
+    element.textContent = '';
+    element.style.display = 'none';
+  });
 }
 
 function updateTopics() {
-  const topic = $('#topic');
-  topic.replaceChildren(new Option('Optional', ''));
-  const subject = state.subjects.find((item) => item.subject_id === $('#subject').value);
-  for (const item of subject?.topics || []) topic.add(new Option(item.name, item.name));
+  const topicSelect = $('#topic');
+  if (!topicSelect) return;
+  const customTopicGroup = $('#custom-topic-group');
+  const customTopicInput = $('#custom-topic');
+  const customSubjectGroup = $('#custom-subject-group');
+  const customSubjectInput = $('#custom-subject');
+  const subjectVal = $('#subject')?.value;
+
+  topicSelect.replaceChildren();
+
+  if (!subjectVal) {
+    topicSelect.add(new Option('Choose a subject first', ''));
+    if (customTopicGroup) customTopicGroup.hidden = true;
+    if (customTopicInput) customTopicInput.value = '';
+    if (customSubjectGroup) customSubjectGroup.hidden = true;
+    if (customSubjectInput) customSubjectInput.value = '';
+    return;
+  }
+
+  if (subjectVal === '__other__') {
+    if (customSubjectGroup) customSubjectGroup.hidden = false;
+    if (customSubjectInput) customSubjectInput.focus();
+    topicSelect.add(new Option('+ Enter custom topic…', '__custom__'));
+    topicSelect.value = '__custom__';
+    if (customTopicGroup) customTopicGroup.hidden = false;
+    setFieldError('#subject-error', '');
+    setFieldError('#custom-subject-error', '');
+    return;
+  }
+
+  if (customSubjectGroup) customSubjectGroup.hidden = true;
+  if (customSubjectInput) customSubjectInput.value = '';
+  setFieldError('#custom-subject-error', '');
+
+  topicSelect.add(new Option('Select a topic (required)', ''));
+  const subject = state.subjects.find((item) => item.subject_id === subjectVal);
+  for (const item of subject?.topics || []) {
+    topicSelect.add(new Option(item.name, item.name));
+  }
+  topicSelect.add(new Option('+ Enter custom topic…', '__custom__'));
+
+  if (customTopicGroup) customTopicGroup.hidden = true;
+  if (customTopicInput) customTopicInput.value = '';
+  setFieldError('#topic-error', '');
+  setFieldError('#custom-topic-error', '');
+}
+
+let teacherSearchTimer = null;
+let currentHighlightedIndex = -1;
+
+function clearTeacherSelection() {
+  const searchInput = $('#teacher-search');
+  const idInput = $('#mentioned-teacher-id');
+  const pill = $('#selected-teacher-pill');
+  const clearBtn = $('#clear-teacher');
+  const dropdown = $('#teacher-dropdown');
+
+  if (searchInput) searchInput.value = '';
+  if (idInput) idInput.value = '';
+  if (pill) {
+    pill.hidden = true;
+    pill.textContent = '';
+  }
+  if (clearBtn) clearBtn.hidden = true;
+  if (dropdown) {
+    dropdown.hidden = true;
+    dropdown.replaceChildren();
+  }
+  setFieldError('#teacher-error', '');
+}
+
+function selectTeacher(teacher) {
+  const searchInput = $('#teacher-search');
+  const idInput = $('#mentioned-teacher-id');
+  const pill = $('#selected-teacher-pill');
+  const clearBtn = $('#clear-teacher');
+  const dropdown = $('#teacher-dropdown');
+
+  idInput.value = teacher.user_id;
+  searchInput.value = teacher.display_name;
+  if (pill) {
+    pill.textContent = `Mentioning: ${teacher.display_name}${teacher.department ? ` · ${teacher.department}` : ''}`;
+    pill.hidden = false;
+  }
+  if (clearBtn) clearBtn.hidden = false;
+  if (dropdown) {
+    dropdown.hidden = true;
+    dropdown.replaceChildren();
+  }
+  setFieldError('#teacher-error', '');
+}
+
+function setupTeacherAutocomplete() {
+  const searchInput = $('#teacher-search');
+  const dropdown = $('#teacher-dropdown');
+  const clearBtn = $('#clear-teacher');
+  if (!searchInput || !dropdown) return;
+
+  async function performSearch() {
+    const q = searchInput.value.trim();
+    dropdown.replaceChildren();
+    currentHighlightedIndex = -1;
+
+    try {
+      const data = await request(`/api/teachers?q=${encodeURIComponent(q)}`);
+      dropdown.replaceChildren();
+      const teachers = data.teachers || [];
+      if (!teachers.length) {
+        const empty = el('div', 'teacher-option-empty', 'No teachers found');
+        dropdown.append(empty);
+      } else {
+        teachers.forEach((t) => {
+          const item = el('div', 'teacher-option');
+          item.setAttribute('role', 'option');
+          item.setAttribute('tabindex', '0');
+          const nameSpan = el('strong', '', t.display_name);
+          const deptSpan = el('span', 'muted', t.department ? ` · ${t.department}` : '');
+          item.append(nameSpan, deptSpan);
+
+          item.addEventListener('click', () => selectTeacher(t));
+          item.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              selectTeacher(t);
+            }
+          });
+          dropdown.append(item);
+        });
+      }
+      dropdown.hidden = false;
+    } catch (error) {
+      const errEl = el('div', 'teacher-option-empty', error.message || 'Error searching teachers');
+      dropdown.replaceChildren(errEl);
+      dropdown.hidden = false;
+    }
+  }
+
+  searchInput.addEventListener('input', () => {
+    const val = searchInput.value.trim();
+    clearTimeout(teacherSearchTimer);
+    const pill = $('#selected-teacher-pill');
+    if ($('#mentioned-teacher-id').value && (!pill || !pill.textContent.includes(val))) {
+      $('#mentioned-teacher-id').value = '';
+      if (pill) pill.hidden = true;
+    }
+    if (!val) {
+      dropdown.hidden = true;
+      dropdown.replaceChildren();
+      if (clearBtn) clearBtn.hidden = true;
+      return;
+    }
+    if (clearBtn) clearBtn.hidden = false;
+    teacherSearchTimer = setTimeout(performSearch, 200);
+  });
+
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim()) {
+      performSearch();
+    }
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    const options = dropdown.querySelectorAll('.teacher-option');
+    if (dropdown.hidden || !options.length) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      currentHighlightedIndex = (currentHighlightedIndex + 1) % options.length;
+      options[currentHighlightedIndex]?.focus();
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+    }
+  });
+
+  dropdown.addEventListener('keydown', (e) => {
+    const options = dropdown.querySelectorAll('.teacher-option');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      currentHighlightedIndex = (currentHighlightedIndex + 1) % options.length;
+      options[currentHighlightedIndex]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      currentHighlightedIndex = (currentHighlightedIndex - 1 + options.length) % options.length;
+      if (currentHighlightedIndex < 0) {
+        searchInput.focus();
+      } else {
+        options[currentHighlightedIndex]?.focus();
+      }
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+      searchInput.focus();
+    }
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      clearTeacherSelection();
+      searchInput.focus();
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.teacher-field-container')) {
+      dropdown.hidden = true;
+    }
+  });
 }
 
 function renderPostCard(post) {
@@ -69,7 +293,10 @@ function renderPostCard(post) {
   card.setAttribute('aria-label', `Open doubt: ${post.title}`);
   const meta = el('div', 'post-meta');
   meta.append(el('span', 'subject-pill', `${post.subject_code} · ${post.subject_name}`));
-  if (post.topic_name) meta.append(el('span', '', `› ${post.topic_name}`));
+  if (post.topic_name) meta.append(el('span', 'topic-pill', `› ${post.topic_name}`));
+  if (post.mentioned_teacher_name) {
+    meta.append(el('span', 'teacher-pill', `@${post.mentioned_teacher_name}`));
+  }
   meta.append(el('span', `status-${post.status}`, `• ${post.status}`));
   card.append(meta, el('h3', '', post.title), el('p', 'excerpt', post.body));
   const bottom = el('div', 'post-bottom');
@@ -125,7 +352,10 @@ function renderDetail(post) {
   const header = el('div', 'detail-header');
   const meta = el('div', 'post-meta');
   meta.append(el('span', 'subject-pill', `${post.subject_code} · ${post.subject_name}`));
-  if (post.topic_name) meta.append(el('span', '', `› ${post.topic_name}`));
+  if (post.topic_name) meta.append(el('span', 'topic-pill', `› ${post.topic_name}`));
+  if (post.mentioned_teacher_name) {
+    meta.append(el('span', 'teacher-pill', `Mentioned: ${post.mentioned_teacher_name}`));
+  }
   meta.append(el('span', `status-${post.status}`, `• ${post.status}`));
   header.append(meta, el('h2', '', post.title), el('div', 'post-meta', `Asked by ${post.author_name || 'Campus member'} · ${new Date(post.created_at).toLocaleString()}`));
   const tags = el('div', 'post-tags');
@@ -248,29 +478,140 @@ $('#login-form').addEventListener('submit', async (event) => {
 
 $('#post-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  clearFieldErrors();
+  setMessage('#post-message');
+
   const formElement = event.currentTarget;
   const button = formElement.querySelector('button[type="submit"]');
-  button.disabled = true;
   const form = new FormData(formElement);
+
+  const title = String(form.get('title') || '').trim();
+  const body = String(form.get('body') || '').trim();
+  const subjectId = String(form.get('subjectId') || '').trim();
+  const customSubject = ($('#custom-subject')?.value || '').trim();
+  const topicSelect = $('#topic').value;
+  const customTopic = ($('#custom-topic')?.value || '').trim();
+  const mentionedTeacherId = ($('#mentioned-teacher-id')?.value || '').trim() || null;
+  const teacherSearchVal = ($('#teacher-search')?.value || '').trim();
+
+  let hasError = false;
+
+  if (!title) {
+    setFieldError('#title-error', 'Please enter a title.');
+    hasError = true;
+  }
+  if (!body) {
+    setFieldError('#body-error', 'Please provide a doubt description.');
+    hasError = true;
+  }
+  if (!subjectId) {
+    setFieldError('#subject-error', 'Please choose a subject.');
+    hasError = true;
+  } else if (subjectId === '__other__') {
+    if (!customSubject) {
+      setFieldError('#custom-subject-error', 'Custom subject name cannot be empty or only whitespace.');
+      hasError = true;
+    } else if (customSubject.length > 150) {
+      setFieldError('#custom-subject-error', 'Subject name must be 150 characters or fewer.');
+      hasError = true;
+    }
+  }
+
+  let finalTopic = '';
+  if (!topicSelect) {
+    setFieldError('#topic-error', 'Please choose a topic.');
+    hasError = true;
+  } else if (topicSelect === '__custom__') {
+    if (!customTopic) {
+      setFieldError('#custom-topic-error', 'Custom topic cannot be empty or only whitespace.');
+      hasError = true;
+    } else if (customTopic.length > 100) {
+      setFieldError('#custom-topic-error', 'Topic name must be 100 characters or fewer.');
+      hasError = true;
+    } else {
+      finalTopic = customTopic;
+    }
+  } else {
+    finalTopic = topicSelect.trim();
+  }
+
+  if (teacherSearchVal && !mentionedTeacherId) {
+    setFieldError('#teacher-error', 'Please select a teacher from the dropdown, or clear the search field to post without mentioning.');
+    hasError = true;
+  }
+
+  if (hasError) return;
+
+  button.disabled = true;
   const tags = String(form.get('tags') || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+
   try {
-    const result = await request('/api/posts', { method: 'POST', body: JSON.stringify({ subjectId: form.get('subjectId'), topicName: form.get('topicName') || null, title: form.get('title'), body: form.get('body'), tags }) });
+    const result = await request('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify({
+        subjectId,
+        customSubject: subjectId === '__other__' ? customSubject : undefined,
+        topicName: finalTopic,
+        title,
+        body,
+        tags,
+        mentionedTeacherId,
+      }),
+    });
     formElement.reset();
+    clearTeacherSelection();
+    if ($('#custom-subject-group')) $('#custom-subject-group').hidden = true;
+    if ($('#custom-subject')) $('#custom-subject').value = '';
+    await loadSubjects();
     updateTopics();
+    clearFieldErrors();
     $('#composer').hidden = true;
     setMessage('#post-message', 'Doubt posted.', true);
     await loadFeed();
     await loadDetail(result.post.post_id);
-  } catch (error) { setMessage('#post-message', error.message); }
-  finally { button.disabled = false; }
+  } catch (error) {
+    setMessage('#post-message', error.message);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $('#subject').addEventListener('change', updateTopics);
-$('#new-question').addEventListener('click', () => { $('#composer').hidden = false; $('#composer').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-$('#close-composer').addEventListener('click', () => { $('#composer').hidden = true; });
+$('#topic').addEventListener('change', () => {
+  const customGroup = $('#custom-topic-group');
+  const customInput = $('#custom-topic');
+  if ($('#topic').value === '__custom__') {
+    if (customGroup) customGroup.hidden = false;
+    if (customInput) customInput.focus();
+  } else {
+    if (customGroup) customGroup.hidden = true;
+    if (customInput) customInput.value = '';
+  }
+  setFieldError('#topic-error', '');
+  setFieldError('#custom-topic-error', '');
+});
+
+$('#new-question').addEventListener('click', () => {
+  $('#composer').hidden = false;
+  $('#composer').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('#close-composer').addEventListener('click', () => {
+  $('#composer').hidden = true;
+  if ($('#custom-subject-group')) $('#custom-subject-group').hidden = true;
+  if ($('#custom-subject')) $('#custom-subject').value = '';
+  clearFieldErrors();
+  clearTeacherSelection();
+  updateTopics();
+});
 $('#refresh').addEventListener('click', loadFeed);
 $('#back-to-feed').addEventListener('click', () => { $('#detail-view').hidden = true; $('#feed-view').hidden = false; });
-$('#logout').addEventListener('click', showSignedOut);
+$('#logout').addEventListener('click', () => {
+  clearTeacherSelection();
+  clearFieldErrors();
+  showSignedOut();
+});
+
+setupTeacherAutocomplete();
 
 async function start() {
   if (!state.token) return;

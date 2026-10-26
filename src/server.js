@@ -14,6 +14,7 @@ const commentRoutes = require('./routes/comments');
 const subjectRoutes = require('./routes/subjects');
 const searchRoutes = require('./routes/search');
 const moderationRoutes = require('./routes/moderation');
+const teacherRoutes = require('./routes/teachers');
 const { requireAuth, requireRole, requireVerifiedTeacher } = require('./middleware/requireAuth');
 
 const app = express();
@@ -31,6 +32,7 @@ app.get('/api/health', async (_req, res, next) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/teachers', teacherRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api', moderationRoutes);
 app.use('/api/posts', postRoutes);
