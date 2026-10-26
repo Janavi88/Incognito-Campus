@@ -12,6 +12,8 @@ const postRoutes = require('./routes/posts');
 const answerRoutes = require('./routes/answers');
 const commentRoutes = require('./routes/comments');
 const subjectRoutes = require('./routes/subjects');
+const searchRoutes = require('./routes/search');
+const moderationRoutes = require('./routes/moderation');
 const { requireAuth, requireRole, requireVerifiedTeacher } = require('./middleware/requireAuth');
 
 const app = express();
@@ -29,6 +31,8 @@ app.get('/api/health', async (_req, res, next) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api', moderationRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/posts/:postId/answers', answerRoutes);
 app.use('/api/posts/:postId/answers/:answerId/comments', commentRoutes);
