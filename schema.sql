@@ -75,6 +75,7 @@ CREATE TABLE post(
 	body TEXT NOT NULL,
 	status VARCHAR(10) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'closed')),
 	created_at TIMESTAMP NOT NULL DEFAULT now(),
+	mentioned_teacher_id VARCHAR(20) REFERENCES teacher (user_id) ON DELETE SET NULL,
 	FOREIGN KEY (subject_id, topic_name) REFERENCES topic (subject_id, topic_name)
 
 );
