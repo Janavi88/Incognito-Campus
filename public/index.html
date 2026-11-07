@@ -119,7 +119,17 @@
         </section>
 
         <section id="feed-view">
-          <div class="feed-toolbar"><div><h2>Recent doubts</h2><p class="muted">Questions from across your campus</p></div><button id="refresh" class="button button-quiet" type="button">↻ Refresh</button></div>
+          <div class="feed-toolbar">
+            <div><h2>Recent doubts</h2><p class="muted">Questions from across your campus</p></div>
+            <div class="feed-controls">
+              <label for="feed-sort">Show</label>
+              <select id="feed-sort" aria-label="Sort doubts">
+                <option value="recent">Recent doubts</option>
+                <option value="top">Most upvoted</option>
+              </select>
+              <button id="refresh" class="button button-quiet" type="button">↻ Refresh</button>
+            </div>
+          </div>
           <div id="feed" class="feed-list"></div>
           <p id="feed-message" class="message" role="status"></p>
         </section>

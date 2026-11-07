@@ -63,7 +63,7 @@ router.get('/moderation/queue', requireAuth, requireModerator, async (_req, res,
               COALESCE(r.post_id, a.post_id) AS post_id,
               r.answer_id,
               COALESCE(p.title, left(a.body, 120)) AS preview,
-              r.reason, r.created_at
+              r.reason, r.created_at AT TIME ZONE 'UTC' AS created_at
          FROM report r
          LEFT JOIN post   p ON p.post_id   = r.post_id
          LEFT JOIN answer a ON a.answer_id = r.answer_id
@@ -72,6 +72,61 @@ router.get('/moderation/queue', requireAuth, requireModerator, async (_req, res,
         LIMIT 100`,
     );
     return res.json({ reports: rows });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// GET /api/moderation/history   recently decided reports with reviewer identity
+router.get('/moderation/history', requireAuth, requireModerator, async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.report_id,
+              CASE WHEN r.post_id IS NOT NULL THEN 'post' ELSE 'answer' END AS target_type,
+              COALESCE(r.post_id, a.post_id) AS post_id,
+              r.answer_id,
+              COALESCE(p.title, left(a.body, 120)) AS preview,
+              r.reason, r.status,
+              COALESCE(t.display_name, reviewer.user_id) AS reviewer_name,
+              reviewer.email AS reviewer_email,
+              reviewer.role AS reviewer_role,
+              r.reviewed_at AT TIME ZONE 'UTC' AS reviewed_at
+         FROM report r
+         JOIN users reviewer ON reviewer.user_id = r.reviewer_user_id
+         LEFT JOIN teacher t ON t.user_id = reviewer.user_id
+         LEFT JOIN post p ON p.post_id = r.post_id
+         LEFT JOIN answer a ON a.answer_id = r.answer_id
+        WHERE r.status IN ('actioned', 'dismissed')
+        ORDER BY r.reviewed_at DESC NULLS LAST, r.created_at DESC
+        LIMIT 100`,
+    );
+    return res.json({ reports: rows });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// GET /api/moderation/doubts?date=YYYY-MM-DD  doubts for a clicked daily chart point
+router.get('/moderation/doubts', requireAuth, requireModerator, async (req, res, next) => {
+  const date = typeof req.query.date === 'string' ? req.query.date : '';
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    return res.status(400).json({ error: 'date must be a valid YYYY-MM-DD value.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.post_id, p.title, p.status, s.subject_name,
+              p.created_at AT TIME ZONE 'UTC' AS created_at,
+              COALESCE((SELECT sum(v.vote_value)::int FROM votes v WHERE v.post_id = p.post_id), 0) AS vote_score
+         FROM post p
+         JOIN subject s ON s.subject_id = p.subject_id
+        WHERE p.merged_into IS NULL
+          AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+        ORDER BY p.created_at DESC
+        LIMIT 100`,
+      [date],
+    );
+    return res.json({ date, doubts: rows });
   } catch (error) {
     return next(error);
   }
@@ -108,8 +163,13 @@ router.post('/moderation/merge', requireAuth, requireModerator, async (req, res,
 // GET /api/moderation/dashboard?days=90   the four dashboard queries from queries/dashboards.sql
 router.get('/moderation/dashboard', requireAuth, requireModerator, async (req, res, next) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 90, 1), 365);
+  // This schema has subjects, not a separate course table. Map the UI's course ID/name
+  // choice to subject_id/subject_name until the data model adds courses explicitly.
+  const courseBy = req.query.courseBy === 'name' ? 'name' : 'id';
+  const courseExpr = courseBy === 'name' ? 's.subject_name' : 's.subject_id';
+  const courseAlias = courseBy === 'name' ? 'course_name' : 'course_id';
   try {
-    const [mostReported, bySubject, trending, aging, backlog] = await Promise.all([
+    const [mostReported, bySubject, trending, aging, backlog, doubtsByDate] = await Promise.all([
       pool.query(
         `WITH rp AS (
            SELECT post_id, count(*)::int AS total_reports,
@@ -130,7 +190,7 @@ router.get('/moderation/dashboard', requireAuth, requireModerator, async (req, r
              FROM ra JOIN answer a ON a.answer_id = ra.answer_id
          ) u ORDER BY total_reports DESC, pending DESC LIMIT 10`),
       pool.query(
-        `SELECT s.subject_code, count(*)::int AS reports,
+        `SELECT ${courseExpr} AS ${courseAlias}, count(*)::int AS reports,
                 (count(*) FILTER (WHERE r.status = 'pending'))::int   AS pending,
                 (count(*) FILTER (WHERE r.status = 'actioned'))::int  AS actioned,
                 (count(*) FILTER (WHERE r.status = 'dismissed'))::int AS dismissed
@@ -138,7 +198,7 @@ router.get('/moderation/dashboard', requireAuth, requireModerator, async (req, r
            LEFT JOIN answer a ON a.answer_id = r.answer_id
            JOIN post p        ON p.post_id   = COALESCE(r.post_id, a.post_id)
            JOIN subject s     ON s.subject_id = p.subject_id
-          GROUP BY s.subject_code ORDER BY reports DESC`),
+          GROUP BY ${courseExpr} ORDER BY reports DESC`),
       pool.query(
         `WITH recent AS (
            SELECT post_id, subject_id, topic_name FROM post
@@ -147,33 +207,54 @@ router.get('/moderation/dashboard', requireAuth, requireModerator, async (req, r
          ), ans AS (
            SELECT a.post_id, count(*) AS n FROM answer a JOIN recent r ON r.post_id = a.post_id GROUP BY a.post_id
          )
-         SELECT s.subject_code, r.topic_name, count(*)::int AS new_doubts,
+         SELECT ${courseExpr} AS ${courseAlias}, r.topic_name, count(*)::int AS new_doubts,
                 COALESCE(sum(ans.n), 0)::int AS answers
            FROM recent r
            JOIN subject s ON s.subject_id = r.subject_id
            LEFT JOIN ans ON ans.post_id = r.post_id
-          GROUP BY s.subject_code, r.topic_name
+          GROUP BY ${courseExpr}, r.topic_name
           ORDER BY new_doubts DESC, answers DESC LIMIT 10`, [days]),
       pool.query(
-        `SELECT s.subject_code, s.subject_name, count(*)::int AS unanswered,
-                min(p.created_at) AS oldest
+        `SELECT ${courseExpr} AS ${courseAlias}, s.subject_name, count(*)::int AS unanswered,
+                min(p.created_at) AT TIME ZONE 'UTC' AS oldest
            FROM post p JOIN subject s ON s.subject_id = p.subject_id
           WHERE p.status = 'open' AND p.merged_into IS NULL
             AND p.created_at < now() - interval '48 hours'
             AND NOT EXISTS (SELECT 1 FROM answer a WHERE a.post_id = p.post_id)
-          GROUP BY s.subject_code, s.subject_name ORDER BY unanswered DESC`),
+          GROUP BY ${courseExpr}, s.subject_name ORDER BY unanswered DESC`),
       pool.query(
         `SELECT count(*)::int AS missing
            FROM post p LEFT JOIN post_embeddings e ON e.post_id = p.post_id
           WHERE (e.post_id IS NULL OR e.embedding IS NULL) AND p.merged_into IS NULL`),
+      pool.query(
+        `WITH bounds AS (
+           SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date AS today
+         ), calendar AS (
+           SELECT generate_series(today - ($1::int - 1), today, interval '1 day')::date AS local_date
+             FROM bounds
+         ), counts AS (
+           SELECT ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date AS local_date,
+                  count(*)::int AS doubts
+             FROM post p CROSS JOIN bounds b
+            WHERE p.merged_into IS NULL
+              AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date
+                    BETWEEN b.today - ($1::int - 1) AND b.today
+            GROUP BY local_date
+         )
+         SELECT to_char(calendar.local_date, 'YYYY-MM-DD') AS date,
+                COALESCE(counts.doubts, 0)::int AS doubts
+           FROM calendar LEFT JOIN counts USING (local_date)
+          ORDER BY calendar.local_date`, [days]),
     ]);
     return res.json({
       days,
+      courseBy,
       mostReported: mostReported.rows,
-      reportsBySubject: bySubject.rows,
+      reportsByCourse: bySubject.rows,
       trendingTopics: trending.rows,
       agingUnanswered: aging.rows,
       postsMissingEmbedding: backlog.rows[0].missing,
+      doubtsByDate: doubtsByDate.rows,
     });
   } catch (error) {
     return next(error);

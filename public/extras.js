@@ -7,6 +7,7 @@
 (() => {
   const isModerator = () => Boolean(state.user)
     && (state.user.role === 'admin' || (state.user.role === 'teacher' && state.user.profile?.isVerified === true));
+  let moderationCourseBy = 'id';
 
   function ago(iso) {
     const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -234,6 +235,206 @@
     return section;
   }
 
+  function barChart(title, rows, labelFor, valueKey, valueName, onSelect = null) {
+    const section = el('section', 'mod-chart');
+    section.append(el('h3', '', title));
+    if (!rows.length) { section.append(el('p', 'muted', 'No data for this period.')); return section; }
+    const max = Math.max(1, ...rows.map((row) => Number(row[valueKey]) || 0));
+    const bars = el('div', 'chart-bars');
+    for (const row of rows) {
+      const line = el('div', 'chart-row');
+      const label = el('span', 'chart-label', labelFor(row));
+      label.title = label.textContent;
+      if (onSelect) {
+        line.classList.add('chart-row-interactive');
+        line.tabIndex = 0; line.setAttribute('role', 'button');
+        line.setAttribute('aria-label', `Open ${label.textContent}`);
+        line.addEventListener('click', () => onSelect(row));
+        line.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); }
+        });
+      }
+      const track = el('div', 'chart-track');
+      const fill = el('div', 'chart-fill');
+      const value = Number(row[valueKey]) || 0;
+      fill.style.width = `${value ? Math.max(3, value / max * 100) : 0}%`;
+      track.append(fill);
+      line.append(label, track, el('strong', 'chart-value', `${value} ${valueName}`));
+      bars.append(line);
+    }
+    section.append(bars);
+    return section;
+  }
+
+  function reportStatusChart(rows, courseKey, selectedStatus = null) {
+    const section = el('section', 'mod-chart');
+    section.id = 'report-status-chart';
+    section.append(el('h3', '', 'Report outcomes by course'));
+    if (!rows.length) { section.append(el('p', 'muted', 'No reports to chart.')); return section; }
+    const max = Math.max(1, ...rows.map((row) => Number(row.reports) || 0));
+    const legend = el('div', 'chart-legend');
+    for (const [name, cls] of [['Pending', 'pending'], ['Actioned', 'actioned'], ['Dismissed', 'dismissed']]) {
+      const key = el('span', 'legend-item', name);
+      key.prepend(el('i', `legend-swatch ${cls}`));
+      legend.append(key);
+    }
+    const bars = el('div', 'chart-bars');
+    for (const row of rows) {
+      const line = el('div', 'chart-row');
+      const total = Number(row.reports) || 0;
+      const label = el('span', 'chart-label', row[courseKey]);
+      const track = el('div', 'chart-track chart-stack-track');
+      const statuses = [['pending', 'pending'], ['actioned', 'actioned'], ['dismissed', 'dismissed']]
+        .filter(([key]) => !selectedStatus || key === selectedStatus);
+      for (const [key, cls] of statuses) {
+        const segment = el('div', `chart-segment ${cls}`);
+        segment.style.width = `${total ? Number(row[key] || 0) / max * 100 : 0}%`;
+        segment.title = `${key}: ${row[key] || 0}`;
+        track.append(segment);
+      }
+      line.append(label, track, el('strong', 'chart-value', `${total} reports`));
+      bars.append(line);
+    }
+    section.append(legend, bars);
+    return section;
+  }
+
+  function pieChart(title, slices, onSelect = null) {
+    const section = el('section', 'mod-chart');
+    section.append(el('h3', '', title));
+    const total = slices.reduce((sum, slice) => sum + Number(slice.value || 0), 0);
+    if (!total) { section.append(el('p', 'muted', 'No reports to chart.')); return section; }
+    const colors = { pending: '#d99c3b', actioned: '#4c8a65', dismissed: '#9aa4b1' };
+    const wrap = el('div', 'pie-layout');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `${title}: ${slices.map((slice) => `${slice.label} ${slice.value}`).join(', ')}`);
+    svg.classList.add('pie-svg');
+    let selectedKey = null;
+    const activate = (key) => {
+      if (!onSelect) return;
+      selectedKey = selectedKey === key ? null : key;
+      onSelect(selectedKey);
+      legend.querySelectorAll('button[data-status]').forEach((item) => {
+        item.setAttribute('aria-pressed', String(item.dataset.status === selectedKey));
+      });
+    };
+    const active = slices.filter((slice) => Number(slice.value) > 0);
+    if (active.length === 1) {
+      const circle = document.createElementNS(svg.namespaceURI, 'circle');
+      circle.setAttribute('cx', '60'); circle.setAttribute('cy', '60'); circle.setAttribute('r', '58');
+      circle.setAttribute('fill', colors[active[0].key]);
+      if (onSelect) {
+        circle.classList.add('pie-slice-interactive'); circle.setAttribute('tabindex', '0');
+        circle.setAttribute('role', 'button'); circle.setAttribute('aria-label', `Filter by ${active[0].label}`);
+        circle.addEventListener('click', () => activate(active[0].key));
+        circle.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(active[0].key); }
+        });
+      }
+      svg.append(circle);
+    } else {
+      let start = -90;
+      for (const slice of active) {
+        const sweep = Number(slice.value) / total * 360;
+        const end = start + sweep;
+        const rad = Math.PI / 180;
+        const x1 = 60 + 58 * Math.cos(start * rad); const y1 = 60 + 58 * Math.sin(start * rad);
+        const x2 = 60 + 58 * Math.cos(end * rad); const y2 = 60 + 58 * Math.sin(end * rad);
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        path.setAttribute('d', `M 60 60 L ${x1} ${y1} A 58 58 0 ${sweep > 180 ? 1 : 0} 1 ${x2} ${y2} Z`);
+        path.setAttribute('fill', colors[slice.key]);
+        path.setAttribute('stroke', '#fff'); path.setAttribute('stroke-width', '1');
+        if (onSelect) {
+          path.classList.add('pie-slice-interactive'); path.setAttribute('tabindex', '0');
+          path.setAttribute('role', 'button'); path.setAttribute('aria-label', `Filter by ${slice.label}`);
+          path.addEventListener('click', () => activate(slice.key));
+          path.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(slice.key); }
+          });
+        }
+        const tip = document.createElementNS(svg.namespaceURI, 'title'); tip.textContent = `${slice.label}: ${slice.value}`;
+        path.append(tip); svg.append(path); start = end;
+      }
+    }
+    const legend = el('div', 'pie-legend');
+    for (const slice of slices) {
+      const item = el(onSelect ? 'button' : 'div', 'pie-legend-item');
+      if (onSelect) {
+        item.type = 'button'; item.dataset.status = slice.key; item.setAttribute('aria-pressed', 'false');
+        item.addEventListener('click', () => activate(slice.key));
+      }
+      const swatch = el('i', 'legend-swatch'); swatch.style.background = colors[slice.key];
+      item.append(swatch, el('span', '', `${slice.label}: ${slice.value}`)); legend.append(item);
+    }
+    wrap.append(svg, legend); section.append(wrap);
+    return section;
+  }
+
+  function lineChart(title, rows, onDateSelect = null) {
+    const section = el('section', 'mod-chart');
+    section.append(el('h3', '', title));
+    if (!rows.length) { section.append(el('p', 'muted', 'No date data to chart.')); return section; }
+    const width = 760; const height = 250; const left = 42; const right = 16; const top = 16; const bottom = 38;
+    const plotWidth = width - left - right; const plotHeight = height - top - bottom;
+    const max = Math.max(1, ...rows.map((row) => Number(row.doubts) || 0));
+    const x = (index) => left + (rows.length < 2 ? plotWidth / 2 : index / (rows.length - 1) * plotWidth);
+    const y = (value) => top + plotHeight - (Number(value) || 0) / max * plotHeight;
+    const sectionSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    sectionSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    sectionSvg.setAttribute('role', 'img');
+    sectionSvg.setAttribute('aria-label', `${title}; daily doubt counts over ${rows.length} days`);
+    sectionSvg.classList.add('line-svg');
+    for (let tick = 0; tick <= 4; tick += 1) {
+      const value = Math.round(max * (4 - tick) / 4); const gy = top + plotHeight * tick / 4;
+      const grid = document.createElementNS(sectionSvg.namespaceURI, 'line');
+      grid.setAttribute('x1', String(left)); grid.setAttribute('x2', String(width - right));
+      grid.setAttribute('y1', String(gy)); grid.setAttribute('y2', String(gy)); grid.setAttribute('class', 'line-grid');
+      sectionSvg.append(grid);
+      const label = document.createElementNS(sectionSvg.namespaceURI, 'text');
+      label.setAttribute('x', String(left - 8)); label.setAttribute('y', String(gy + 4)); label.setAttribute('text-anchor', 'end');
+      label.setAttribute('class', 'line-axis-label'); label.textContent = String(value); sectionSvg.append(label);
+    }
+    const points = rows.map((row, index) => `${x(index)},${y(row.doubts)}`).join(' ');
+    const area = document.createElementNS(sectionSvg.namespaceURI, 'polygon');
+    area.setAttribute('points', `${left},${top + plotHeight} ${points} ${x(rows.length - 1)},${top + plotHeight}`);
+    area.setAttribute('class', 'line-area'); sectionSvg.append(area);
+    const line = document.createElementNS(sectionSvg.namespaceURI, 'polyline');
+    line.setAttribute('points', points); line.setAttribute('class', 'line-stroke'); sectionSvg.append(line);
+    rows.forEach((row, index) => {
+      const dot = document.createElementNS(sectionSvg.namespaceURI, 'circle');
+      dot.setAttribute('cx', String(x(index))); dot.setAttribute('cy', String(y(row.doubts)));
+      dot.setAttribute('r', Number(row.doubts) === max ? '4' : '2'); dot.setAttribute('class', 'line-dot');
+      if (onDateSelect) {
+        dot.setAttribute('r', Number(row.doubts) === max ? '5' : '3');
+        dot.setAttribute('tabindex', '0'); dot.setAttribute('role', 'button');
+        dot.setAttribute('aria-label', `Show doubts from ${row.date}: ${row.doubts} doubts`);
+        dot.classList.add('line-dot-interactive');
+        dot.addEventListener('click', () => onDateSelect(row.date));
+        dot.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onDateSelect(row.date); }
+        });
+      }
+      const tip = document.createElementNS(sectionSvg.namespaceURI, 'title');
+      tip.textContent = `${formatCampusDate(`${row.date}T12:00:00+05:30`, { dateStyle: 'medium' })}: ${row.doubts} doubts`;
+      dot.append(tip); sectionSvg.append(dot);
+    });
+    const labelIndexes = [...new Set([0, Math.floor((rows.length - 1) / 3), Math.floor((rows.length - 1) * 2 / 3), rows.length - 1])];
+    for (const index of labelIndexes) {
+      const label = document.createElementNS(sectionSvg.namespaceURI, 'text');
+      label.setAttribute('x', String(x(index))); label.setAttribute('y', String(height - 10));
+      label.setAttribute('text-anchor', index === 0 ? 'start' : index === rows.length - 1 ? 'end' : 'middle');
+      label.setAttribute('class', 'line-axis-label');
+      label.textContent = formatCampusDate(`${rows[index].date}T12:00:00+05:30`, { month: 'short', day: 'numeric' });
+      sectionSvg.append(label);
+    }
+    const peak = rows.reduce((best, row) => Number(row.doubts) > Number(best.doubts) ? row : best, rows[0]);
+    const note = el('p', 'muted chart-summary', `Peak: ${formatCampusDate(`${peak.date}T12:00:00+05:30`, { dateStyle: 'medium' })} · ${peak.doubts} doubts`);
+    section.append(sectionSvg, note);
+    return section;
+  }
+
   function buildModeration() {
     if ($('#mod-view')) return;
     const view = el('section', 'panel detail'); view.id = 'mod-view'; view.hidden = true;
@@ -255,7 +456,11 @@
     const content = $('#mod-content');
     content.replaceChildren(el('p', 'muted', 'Loading…'));
     try {
-      const [queue, dash] = await Promise.all([request('/api/moderation/queue'), request('/api/moderation/dashboard')]);
+      const [queue, history, dash] = await Promise.all([
+        request('/api/moderation/queue'),
+        request('/api/moderation/history'),
+        request(`/api/moderation/dashboard?courseBy=${moderationCourseBy}`),
+      ]);
       content.replaceChildren(el('h2', '', 'Moderation'));
 
       const section = el('section', 'mod-section');
@@ -283,11 +488,97 @@
       }
       content.append(section);
 
+      const historySection = el('section', 'mod-section');
+      historySection.append(el('h3', '', `Recently reviewed (${history.reports.length})`));
+      if (!history.reports.length) historySection.append(el('p', 'muted', 'No reports have been reviewed yet.'));
+      for (const report of history.reports) {
+        const item = el('div', 'mod-item');
+        const meta = el('div', 'post-meta');
+        const decisionLabel = report.status === 'dismissed' ? 'Dismissed' : 'Action taken';
+        meta.append(
+          el('span', 'subject-pill', report.target_type === 'post' ? 'Doubt' : 'Answer'),
+          el('span', report.status === 'dismissed' ? 'status-dismissed' : 'status-actioned', decisionLabel),
+        );
+        const reviewerLine = `${report.reviewer_name} (${report.reviewer_role}) · ${report.reviewer_email}`;
+        const reviewedLine = report.reviewed_at
+          ? `Reviewed ${formatCampusDate(report.reviewed_at, { dateStyle: 'medium', timeStyle: 'short' })}`
+          : 'Review time unavailable for this older record';
+        const actions = el('div', 'mod-actions');
+        actions.append(button('Open', 'button button-quiet', () => loadDetail(report.post_id)));
+        item.append(meta, el('p', 'result-title', report.preview), el('p', 'muted', `Reason: ${report.reason}`),
+          el('p', 'review-audit', `Reviewed by ${reviewerLine}`), el('p', 'muted', reviewedLine), actions);
+        historySection.append(item);
+      }
+      content.append(historySection);
+
       content.append(el('h3', 'answers-heading', `Dashboard (last ${dash.days} days)`));
+      const dashboardControls = el('div', 'dashboard-controls');
+      const courseLabel = el('label', '', 'Group reports by');
+      courseLabel.htmlFor = 'moderation-course-by';
+      const courseSelect = document.createElement('select');
+      courseSelect.id = 'moderation-course-by';
+      courseSelect.add(new Option('Course ID', 'id'));
+      courseSelect.add(new Option('Course name', 'name'));
+      courseSelect.value = dash.courseBy;
+      courseSelect.addEventListener('change', () => {
+        moderationCourseBy = courseSelect.value;
+        loadModeration();
+      });
+      dashboardControls.append(courseLabel, courseSelect, el('span', 'muted', 'Uses the project’s subject ID and name fields.'));
+      content.append(dashboardControls);
+      const reportTotals = ['pending', 'actioned', 'dismissed'].map((key) => ({
+        key,
+        label: key[0].toUpperCase() + key.slice(1),
+        value: dash.reportsByCourse.reduce((sum, row) => sum + Number(row[key] || 0), 0),
+      }));
+      const courseKey = dash.courseBy === 'name' ? 'course_name' : 'course_id';
+      let selectedReportStatus = null;
+      let courseStatusChart = reportStatusChart(dash.reportsByCourse, courseKey);
+      content.append(pieChart('Report outcomes', reportTotals, (status) => {
+        selectedReportStatus = status;
+        const updatedChart = reportStatusChart(dash.reportsByCourse, courseKey, selectedReportStatus);
+        courseStatusChart.replaceWith(updatedChart);
+        courseStatusChart = updatedChart;
+      }));
+
+      async function showDoubtsForDate(date) {
+        let details = $('#date-doubt-details');
+        if (!details) {
+          details = el('section', 'mod-chart date-doubt-details');
+          details.id = 'date-doubt-details';
+          content.append(details);
+        }
+        details.replaceChildren(el('h3', '', `Doubts from ${formatCampusDate(`${date}T12:00:00+05:30`, { dateStyle: 'medium' })}`), el('p', 'muted', 'Loading doubts…'));
+        try {
+          const data = await request(`/api/moderation/doubts?date=${encodeURIComponent(date)}`);
+          details.replaceChildren(el('h3', '', `Doubts from ${formatCampusDate(`${date}T12:00:00+05:30`, { dateStyle: 'medium' })}`));
+          if (!data.doubts.length) details.append(el('p', 'muted', 'No doubts were created on this date.'));
+          for (const doubt of data.doubts) {
+            const item = el('div', 'mod-item date-doubt-item');
+            const meta = el('div', 'post-meta');
+            meta.append(el('span', 'subject-pill', doubt.subject_name), el('span', `status-${doubt.status}`, doubt.status));
+            const openDoubt = button('Open doubt', 'button button-quiet', () => loadDetail(doubt.post_id));
+            item.append(meta, el('p', 'result-title', doubt.title), el('span', 'muted', `${formatCampusDate(doubt.created_at, { timeStyle: 'short' })} · ${doubt.vote_score} net votes`), openDoubt);
+            details.append(item);
+          }
+        } catch (error) {
+          details.replaceChildren(el('h3', '', 'Could not load doubts for this date'), el('p', 'message', error.message));
+        }
+        details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      content.append(lineChart(`Doubts created each day (last ${dash.days} days)`, dash.doubtsByDate, showDoubtsForDate));
+      content.append(barChart('Most reported items', dash.mostReported, (row) => `${row.kind}: ${row.preview}`, 'total_reports', 'reports', (row) => loadDetail(row.post_id)));
+      content.append(courseStatusChart);
+      content.append(barChart('Trending topics', dash.trendingTopics, (row) => `${row[courseKey]} · ${row.topic_name}`, 'new_doubts', 'doubts'));
+      content.append(barChart('Unanswered doubts by course', dash.agingUnanswered, (row) => row[courseKey], 'unanswered', 'doubts'));
+      const peakDates = dash.doubtsByDate.filter((row) => Number(row.doubts) > 0)
+        .slice().sort((a, b) => Number(b.doubts) - Number(a.doubts) || a.date.localeCompare(b.date)).slice(0, 10);
+      content.append(barChart('Busiest doubt dates', peakDates, (row) => formatCampusDate(`${row.date}T12:00:00+05:30`, { dateStyle: 'medium' }), 'doubts', 'doubts'));
       content.append(table('Most reported', [['Type', 'kind'], ['Preview', 'preview'], ['Reports', 'total_reports'], ['Pending', 'pending']], dash.mostReported));
-      content.append(table('Reports by subject', [['Subject', 'subject_code'], ['Reports', 'reports'], ['Pending', 'pending'], ['Actioned', 'actioned'], ['Dismissed', 'dismissed']], dash.reportsBySubject));
-      content.append(table('Trending topics', [['Subject', 'subject_code'], ['Topic', 'topic_name'], ['New doubts', 'new_doubts'], ['Answers', 'answers']], dash.trendingTopics));
-      content.append(table('Unanswered for over 48 hours', [['Subject', 'subject_code'], ['Unanswered', 'unanswered'], ['Oldest', 'oldest']], dash.agingUnanswered.map((r) => ({ ...r, oldest: new Date(r.oldest).toLocaleDateString() }))));
+      content.append(table('Reports by course', [['Course', courseKey], ['Reports', 'reports'], ['Pending', 'pending'], ['Actioned', 'actioned'], ['Dismissed', 'dismissed']], dash.reportsByCourse));
+      content.append(table('Trending topics', [['Course', courseKey], ['Topic', 'topic_name'], ['New doubts', 'new_doubts'], ['Answers', 'answers']], dash.trendingTopics));
+      content.append(table('Unanswered for over 48 hours', [['Course', courseKey], ['Unanswered', 'unanswered'], ['Oldest', 'oldest']], dash.agingUnanswered.map((r) => ({ ...r, oldest: formatCampusDate(r.oldest, { dateStyle: 'medium' }) }))));
       const health = el('p', 'muted', dash.postsMissingEmbedding === 0
         ? 'Search index: every doubt is indexed.'
         : `Search index: ${dash.postsMissingEmbedding} doubt(s) are waiting to be indexed (they appear in search after the next retry).`);

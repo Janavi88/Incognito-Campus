@@ -146,6 +146,7 @@ CREATE TABLE report (
     reason TEXT NOT NULL,
     status VARCHAR(10) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'actioned', 'dismissed')),
     created_at TIMESTAMP NOT NULL DEFAULT now(),
+    reviewed_at TIMESTAMP,
     CHECK ((post_id IS NULL) <> (answer_id IS NULL))
 );
 

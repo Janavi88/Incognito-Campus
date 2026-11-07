@@ -1,5 +1,11 @@
-const state = { token: localStorage.getItem('ic_token'), user: null, subjects: [], currentPostId: null };
+const state = { token: localStorage.getItem('ic_token'), user: null, subjects: [], currentPostId: null, feedSort: 'recent' };
 const $ = (selector) => document.querySelector(selector);
+
+function formatCampusDate(value, options = {}) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value ?? '');
+  return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', ...options }).format(date);
+}
 
 function setMessage(selector, message = '', good = false) {
   const element = $(selector);
@@ -302,7 +308,7 @@ function renderPostCard(post) {
   const bottom = el('div', 'post-bottom');
   const tags = el('div', 'post-tags');
   for (const tag of post.tags || []) tags.append(el('span', 'tag', `#${tag.name}`));
-  const count = el('span', '', `${post.answer_count} ${post.answer_count === 1 ? 'answer' : 'answers'}  ·  ${post.author_name || 'Campus member'}`);
+  const count = el('span', '', `${post.answer_count} ${post.answer_count === 1 ? 'answer' : 'answers'}  ·  ${post.upvote_count ?? 0} upvotes  ·  ${post.author_name || 'Campus member'}`);
   bottom.append(tags, count);
   card.append(bottom);
   card.addEventListener('click', () => loadDetail(post.post_id));
@@ -339,7 +345,7 @@ async function loadFeed() {
   feed.replaceChildren();
   setMessage('#feed-message', 'Loading doubts…', true);
   try {
-    const data = await request('/api/posts');
+    const data = await request(`/api/posts?sort=${encodeURIComponent(state.feedSort)}`);
     if (!data.posts.length) feed.append(el('div', 'empty', 'No doubts yet. Start a discussion by asking the first one.'));
     else for (const post of data.posts) feed.append(renderPostCard(post));
     setMessage('#feed-message');
@@ -357,7 +363,7 @@ function renderDetail(post) {
     meta.append(el('span', 'teacher-pill', `Mentioned: ${post.mentioned_teacher_name}`));
   }
   meta.append(el('span', `status-${post.status}`, `• ${post.status}`));
-  header.append(meta, el('h2', '', post.title), el('div', 'post-meta', `Asked by ${post.author_name || 'Campus member'} · ${new Date(post.created_at).toLocaleString()}`));
+  header.append(meta, el('h2', '', post.title), el('div', 'post-meta', `Asked by ${post.author_name || 'Campus member'} · ${formatCampusDate(post.created_at, { dateStyle: 'medium', timeStyle: 'short' })}`));
   const tags = el('div', 'post-tags');
   for (const tag of post.tags || []) tags.append(el('span', 'tag', `#${tag.name}`));
   header.append(tags);
@@ -577,6 +583,7 @@ $('#post-form').addEventListener('submit', async (event) => {
 });
 
 $('#subject').addEventListener('change', updateTopics);
+$('#feed-sort').addEventListener('change', (event) => { state.feedSort = event.target.value; loadFeed(); });
 $('#topic').addEventListener('change', () => {
   const customGroup = $('#custom-topic-group');
   const customInput = $('#custom-topic');
