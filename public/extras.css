@@ -38,6 +38,7 @@
 .mod-item{padding:14px 0;border-top:1px solid var(--line)}
 .mod-item .result-title{margin:8px 0 4px}
 .mod-item .muted{margin:0 0 10px}
+.mod-item .review-audit{margin:0 0 5px;color:#334155;font-size:12px;font-weight:600}
 .mod-actions{display:flex;gap:8px;flex-wrap:wrap}
 .table-scroll{overflow-x:auto}
 .data-table{width:100%;border-collapse:collapse;font-size:12px}
@@ -45,3 +46,50 @@
 .data-table td{padding:8px 10px;border-bottom:1px solid #f0f2f7;color:#47536a;vertical-align:top}
 
 @media(max-width:760px){.search-form{flex-wrap:wrap}.search-form input{flex-basis:100%}}
+
+.feed-controls{display:flex;align-items:center;gap:8px;color:#68758a;font-size:12px}
+.feed-controls select{padding:10px 12px;border:1px solid #dfe4ed;border-radius:8px;background:#fff;color:var(--ink);font:inherit}
+.mod-chart{margin:0 0 20px;padding:15px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.mod-chart h3{font-size:14px;margin:0 0 12px}
+.chart-bars{display:grid;gap:9px}
+.chart-row{display:grid;grid-template-columns:minmax(110px,220px) minmax(80px,1fr) minmax(65px,auto);gap:10px;align-items:center}
+.chart-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#526075;font-size:11px}
+.chart-track{height:13px;overflow:hidden;border-radius:99px;background:#edf0f4}
+.chart-fill{height:100%;border-radius:inherit;background:#315f92}
+.chart-stack-track{display:flex;gap:1px;background:#edf0f4}
+.chart-segment{height:100%;min-width:0}
+.chart-segment.pending,.legend-swatch.pending{background:#d99c3b}
+.chart-segment.actioned,.legend-swatch.actioned{background:#4c8a65}
+.chart-segment.dismissed,.legend-swatch.dismissed{background:#9aa4b1}
+.chart-value{color:#526075;font-size:11px;text-align:right;white-space:nowrap}
+.chart-legend{display:flex;gap:14px;margin:-2px 0 12px}
+.legend-item{display:flex;align-items:center;gap:5px;color:#68758a;font-size:10px}
+.legend-swatch{display:inline-block;width:9px;height:9px;border-radius:50%}
+.pie-layout{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.pie-svg{width:170px;max-width:45vw;height:auto;flex:none}
+.pie-legend{display:grid;gap:9px}
+.pie-legend-item{display:flex;align-items:center;gap:8px;color:#526075;font-size:12px}
+.pie-legend button.pie-legend-item{padding:5px 7px;border:0;border-radius:6px;background:transparent;font:inherit;text-align:left;cursor:pointer}
+.pie-legend button.pie-legend-item[aria-pressed="true"]{background:#edf2f8;color:#243248;font-weight:700}
+.pie-slice-interactive{cursor:pointer;transition:opacity .15s}
+.pie-slice-interactive:hover,.pie-slice-interactive:focus{opacity:.78;outline:none}
+.line-svg{display:block;width:100%;height:auto;overflow:visible}
+.line-grid{stroke:#e8ecf2;stroke-width:1}
+.line-axis-label{fill:#738096;font:11px Arial,sans-serif}
+.line-area{fill:rgba(49,95,146,.12)}
+.line-stroke{fill:none;stroke:#315f92;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.line-dot{fill:#315f92;stroke:#fff;stroke-width:1.5}
+.line-dot-interactive{cursor:pointer;transition:r .12s,fill .12s}
+.line-dot-interactive:hover,.line-dot-interactive:focus{fill:#b5232f;stroke-width:2;outline:none}
+.chart-row-interactive{cursor:pointer;border-radius:5px;padding:2px}
+.chart-row-interactive:hover,.chart-row-interactive:focus{background:#f1f4f8;outline:2px solid #cad5e2;outline-offset:1px}
+.chart-summary{margin:8px 0 0;font-size:11px}
+.date-doubt-details{scroll-margin:18px}
+.date-doubt-item{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.date-doubt-item .post-meta{grid-column:1/-1}
+.date-doubt-item .result-title{margin:0}
+.dashboard-controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 16px;padding:12px;border-radius:8px;background:#f6f7fa}
+.dashboard-controls label{font-size:12px;font-weight:600;color:#526075}
+.dashboard-controls select{padding:8px 10px;border:1px solid #dfe4ed;border-radius:7px;background:#fff;color:var(--ink);font:inherit;font-size:12px}
+.dashboard-controls .muted{margin:0;font-size:11px}
+@media(max-width:600px){.feed-controls{flex-wrap:wrap}.chart-row{grid-template-columns:minmax(80px,115px) minmax(50px,1fr) minmax(58px,auto);gap:7px}.mod-chart{padding:12px}}

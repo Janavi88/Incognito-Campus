@@ -49,6 +49,7 @@ migrations/
   001_search_moderation.sql     embeddings primary key, merged_into column, report rules
   002_merge_and_moderation.sql  merge_post(), review_report(), report triggers, thread view
   003_dashboards_indexes.sql    two measured indexes for the dashboards
+  004_report_review_audit.sql  review timestamps for moderation history
 queries/
   dashboards.sql                eight analytics and moderation queries
   explain_demo.sql              EXPLAIN ANALYZE before/after demo
@@ -78,7 +79,7 @@ Next time, if the container has stopped: `docker start incognito-db`.
 ### 2. Load the database (in this order)
 
 ```powershell
-foreach ($f in "schema.sql","seed.sql","migrations/001_search_moderation.sql","migrations/002_merge_and_moderation.sql","migrations/003_dashboards_indexes.sql") {
+foreach ($f in "schema.sql","seed.sql","migrations/001_search_moderation.sql","migrations/002_merge_and_moderation.sql","migrations/003_dashboards_indexes.sql","migrations/004_report_review_audit.sql") {
   docker cp $f incognito-db:/tmp/load.sql
   docker exec incognito-db psql -U postgres -d incognito_campus -v ON_ERROR_STOP=1 -q -f /tmp/load.sql
 }
@@ -86,6 +87,14 @@ foreach ($f in "schema.sql","seed.sql","migrations/001_search_moderation.sql","m
 
 `NOTICE: ... does not exist, skipping` lines are normal. Anything starting with `ERROR:` is not.
 Re-running `schema.sql` wipes all data, so reload every file after it.
+If your database is already set up, apply only the new audit migration so existing project data stays intact:
+
+```powershell
+docker cp migrations/004_report_review_audit.sql incognito-db:/tmp/load.sql
+docker exec incognito-db psql -U postgres -d incognito_campus -v ON_ERROR_STOP=1 -q -f /tmp/load.sql
+```
+
+Reports reviewed before this migration have no saved review timestamp; new decisions will show the reviewer and review time.
 
 ### 3. Create embeddings
 

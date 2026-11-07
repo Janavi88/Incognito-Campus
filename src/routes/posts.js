@@ -6,12 +6,16 @@ const { findOrCreateSubject } = require('../services/subjectService');
 
 const router = express.Router();
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
+  const sort = req.query.sort === 'top' ? 'top' : 'recent';
   try {
     const { rows } = await pool.query(
-      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at,
+      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status,
+              p.created_at AT TIME ZONE 'UTC' AS created_at,
               p.mentioned_teacher_id,
               mt.display_name AS mentioned_teacher_name,
+              (SELECT count(*)::int FROM votes v WHERE v.post_id = p.post_id AND v.vote_value = 1) AS upvote_count,
+              COALESCE((SELECT sum(v.vote_value)::int FROM votes v WHERE v.post_id = p.post_id), 0) AS vote_score,
               s.subject_code, s.subject_name,
               u.role AS author_role,
               COALESCE(st.anonymous_handle, t.display_name) AS author_name,
@@ -28,10 +32,10 @@ router.get('/', async (_req, res, next) => {
          LEFT JOIN teacher t ON t.user_id = u.user_id
          LEFT JOIN teacher mt ON mt.user_id = p.mentioned_teacher_id
         WHERE p.merged_into IS NULL
-        ORDER BY p.created_at DESC
+        ORDER BY ${sort === 'top' ? 'upvote_count DESC, vote_score DESC, p.created_at DESC' : 'p.created_at DESC'}
         LIMIT 100`,
     );
-    return res.json({ posts: rows });
+    return res.json({ posts: rows, sort });
   } catch (error) {
     return next(error);
   }
@@ -40,7 +44,8 @@ router.get('/', async (_req, res, next) => {
 router.get('/:postId', optionalAuth, async (req, res, next) => {
   try {
     const { rows: postRows } = await pool.query(
-      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status, p.created_at, p.merged_into,
+      `SELECT p.post_id, p.subject_id, p.topic_name, p.title, p.body, p.status,
+              p.created_at AT TIME ZONE 'UTC' AS created_at, p.merged_into,
               p.mentioned_teacher_id,
               mt.display_name AS mentioned_teacher_name,
               s.subject_code, s.subject_name, u.role AS author_role,
